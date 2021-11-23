@@ -1,0 +1,10 @@
+version: '3'
+
+services:
+  postgres:
+    image: postgres:13.3-alpine
+    environment:
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: throttling
+    ports:
+      - "5432:5432"
