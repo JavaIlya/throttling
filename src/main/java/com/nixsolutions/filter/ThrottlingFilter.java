@@ -1,14 +1,20 @@
 package com.nixsolutions.filter;
 
 import com.nixsolutions.service.CallsCounterService;
+import io.micronaut.core.util.StringUtils;
+import io.micronaut.http.HttpAttributes;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.MutableHttpResponse;
 import io.micronaut.http.annotation.Filter;
 import io.micronaut.http.filter.HttpServerFilter;
 import io.micronaut.http.filter.ServerFilterChain;
+import io.micronaut.web.router.UriRouteMatch;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Publisher;
+
+import java.util.Map;
+import java.util.Optional;
 
 @Filter("/**")
 @RequiredArgsConstructor
@@ -19,10 +25,20 @@ public class ThrottlingFilter implements HttpServerFilter {
 
     @Override
     public Publisher<MutableHttpResponse<?>> doFilter(HttpRequest<?> request, ServerFilterChain chain) {
-        String tenant = retrieveTenant(request.getPath());
+        var uriRouteMatch = request.getAttributes()
+                .get(HttpAttributes.ROUTE_MATCH.toString(), UriRouteMatch.class);
+
+        if (uriRouteMatch.isEmpty() || !containsTenant(uriRouteMatch.get().getVariableValues())) {
+            return chain.proceed(request);
+        }
+
+        Map<String, Object> uriVariables = uriRouteMatch.get().getVariableValues();
+
+        String tenant = (String) uriVariables.get("tenant");
+
         log.debug("request received for tenants {}", tenant);
-        int requestsSent = callsCounterService.getCurrentRequestsSentCount(tenant);
-        int allowedRequestsCount = callsCounterService.getAllowedRequestsCount(tenant);
+        final int requestsSent = callsCounterService.getCurrentRequestsSentCount(tenant);
+        final int allowedRequestsCount = callsCounterService.getAllowedRequestsCount(tenant);
 
         if (requestsSent >= allowedRequestsCount) {
             throw new RuntimeException("Throttled");
@@ -33,12 +49,7 @@ public class ThrottlingFilter implements HttpServerFilter {
     }
 
 
-    private String retrieveTenant(String uri) {
-        String[] splitUri = uri.split("/");
-        if (splitUri.length > 1) {
-            return splitUri[1];
-        }
-
-        throw new RuntimeException("Cannot find tenant in the request");
+    private boolean containsTenant(Map<String, Object> uriVariables) {
+        return uriVariables.containsKey("tenant");
     }
 }
